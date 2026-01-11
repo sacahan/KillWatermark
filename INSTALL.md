@@ -44,21 +44,27 @@ chmod +x /path/to/KillWatermark/remove_watermark.py
 ```bash
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
+# 使用你的 Python 路徑（執行 which python3 查看）
+PYTHON_PATH="$(which python3)"
+SCRIPT_PATH="/path/to/KillWatermark/remove_watermark.py"
+
 for f in "$@"; do
-    /usr/bin/python3 "/path/to/KillWatermark/remove_watermark.py" "$f"
+    "$PYTHON_PATH" "$SCRIPT_PATH" "$f"
 done
 
 osascript -e 'display notification "浮水印移除完成！" with title "KillWatermark"'
 ```
 
-1. 儲存為「**移除浮水印**」
+> ⚠️ **注意**：請勿使用 `/usr/bin/python3`，因為系統內建的 Python 可能沒有安裝所需套件。請使用 `which python3` 找到的路徑。
+
+1. 儲存為「**移除 Nano Banana Pro 浮水印**」
 
 #### 方法 B：直接複製工作流程檔案
 
 安裝腳本會自動建立工作流程檔案在：
 
 ```
-~/Library/Services/移除浮水印.workflow
+~/Library/Services/移除 Nano Banana Pro 浮水印.workflow
 ```
 
 ### 步驟 4：啟用快速動作
@@ -66,7 +72,7 @@ osascript -e 'display notification "浮水印移除完成！" with title "KillWa
 1. 開啟「**系統設定**」
 2. 前往「**隱私權與安全性**」→「**延伸功能**」
 3. 點選「**Finder**」
-4. 確認「**移除浮水印**」已勾選
+4. 確認「**移除 Nano Banana Pro 浮水印**」已勾選
 
 ### 步驟 5：重新啟動 Finder
 
@@ -76,19 +82,20 @@ killall Finder
 
 ## 驗證安裝
 
-1. 在 Finder 中找一張圖片
-2. 右鍵點選 → 快速動作 → 移除浮水印
+1. 在 Finder 中找一張 Gemini 生成的圖片
+2. 右鍵點選 → 快速動作 → **移除 Nano Banana Pro 浮水印**
 3. 檢查是否產生 `_no_watermark` 結尾的新檔案
 
 ## 常見問題
 
-### Q: 快速動作選單中沒有看到「移除浮水印」
+### Q: 快速動作選單中沒有看到「移除 Nano Banana Pro 浮水印」
 
 **A:** 請確認：
 
 1. 工作流程檔案存在於 `~/Library/Services/`
 2. 在「系統設定」→「延伸功能」→「Finder」中已啟用
 3. 嘗試重新啟動 Finder：`killall Finder`
+4. 登出再登入
 
 ### Q: 執行時出現 Python 錯誤
 
@@ -97,6 +104,15 @@ killall Finder
 1. Python 3 已正確安裝：`python3 --version`
 2. 依賴套件已安裝：`pip3 list | grep -E "Pillow|numpy"`
 3. 腳本路徑正確
+4. **確認使用的是有安裝套件的 Python**（執行 `which python3` 查看路徑）
+
+### Q: 快速動作執行但沒有產生檔案
+
+**A:** 可能是 Python 路徑問題：
+
+1. 系統內建的 `/usr/bin/python3` 可能沒有安裝 numpy/Pillow
+2. 重新執行 `./install.sh`，它會自動偵測正確的 Python 路徑
+3. 或手動測試：`/usr/bin/python3 -c "import numpy"` 看是否報錯
 
 ### Q: 權限被拒絕
 
@@ -116,5 +132,5 @@ chmod +x uninstall.sh
 或手動刪除：
 
 ```bash
-rm -rf ~/Library/Services/移除浮水印.workflow
+rm -rf ~/Library/Services/移除\ Nano\ Banana\ Pro\ 浮水印.workflow
 ```

@@ -102,3 +102,13 @@ pip3 install Pillow numpy
 ## 📄 授權
 
 MIT License
+
+## 👤 作者
+
+**Brian Han**
+
+- GitHub: [@sacahan](https://github.com/sacahan)
+
+## 🙏 致謝
+
+本專案參考了 [Gemini 🍌 無"印"良品](https://github.com/doggy8088/TampermonkeyUserscripts) 的實作邏輯。
