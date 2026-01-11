@@ -224,6 +224,7 @@ class WatermarkRemover:
         """
         計算 alpha map（透明度遮罩）
         透過背景樣本計算每個像素的 alpha 強度
+        與 JS 版本一致：使用 max(r, g, b) / 255
         """
         bg_array = np.array(bg_image, dtype=np.float32)
         height, width = bg_array.shape[:2]
@@ -231,11 +232,10 @@ class WatermarkRemover:
         
         for y in range(height):
             for x in range(width):
-                r, g, b, a = bg_array[y, x]
-                if a > 0:
-                    # 計算與白色的差異來推算 alpha
-                    max_diff = max(255 - r, 255 - g, 255 - b)
-                    alpha_map[y, x] = max_diff / 255.0
+                r, g, b = bg_array[y, x, :3]
+                # 與 JS 版本一致：計算 max channel 作為 alpha
+                max_channel = max(r, g, b)
+                alpha_map[y, x] = max_channel / 255.0
                     
         return alpha_map
     
@@ -252,58 +252,175 @@ class WatermarkRemover:
         else:
             # 預設使用 48
             return self._get_alpha_map(48)
-    
+
+    def _detect_watermark_config(self, image_width: int, image_height: int) -> dict:
+        """
+        根據圖片尺寸決定浮水印配置
+        與 JS 版本一致
+        """
+        if image_width > 1024 and image_height > 1024:
+            return {"logo_size": 96, "margin_right": 64, "margin_bottom": 64}
+        else:
+            return {"logo_size": 48, "margin_right": 32, "margin_bottom": 32}
+
+    def _calculate_watermark_position(
+        self, image_width: int, image_height: int, config: dict
+    ) -> dict:
+        """
+        計算浮水印位置（右下角，考慮邊距）
+        """
+        logo_size = config["logo_size"]
+        margin_right = config["margin_right"]
+        margin_bottom = config["margin_bottom"]
+
+        return {
+            "x": image_width - margin_right - logo_size,
+            "y": image_height - margin_bottom - logo_size,
+            "width": logo_size,
+            "height": logo_size,
+        }
+
     def _detect_watermark_position(self, image: Image.Image) -> tuple:
         """
         偵測浮水印位置
-        通常在圖片右下角
+        使用與 JS 版本一致的邏輯
         """
         width, height = image.size
-        
-        # 嘗試不同的浮水印尺寸
-        for wm_size in [96, 48]:
-            # 計算可能的位置（右下角）
-            x = width - wm_size
-            y = height - wm_size
-            
-            if x >= 0 and y >= 0:
-                # 檢查此區域是否可能有浮水印
-                region = image.crop((x, y, x + wm_size, y + wm_size))
-                if self._is_watermark_present(region, wm_size):
-                    return (x, y, wm_size)
+
+        # 使用配置決定浮水印大小和位置
+        config = self._detect_watermark_config(width, height)
+        position = self._calculate_watermark_position(width, height, config)
+
+        wm_size = config["logo_size"]
+        x = position["x"]
+        y = position["y"]
+
+        if x >= 0 and y >= 0:
+            # 取得 alpha map
+            alpha_map = self._get_alpha_map(wm_size)
+
+            # 檢查此區域是否有浮水印
+            if self._is_watermark_present(image, alpha_map, position):
+                return (x, y, wm_size)
         
         return None
-    
-    def _is_watermark_present(self, region: Image.Image, size: int) -> bool:
+
+    def _is_watermark_present(
+        self, image: Image.Image, alpha_map: np.ndarray, position: dict
+    ) -> bool:
         """
         判斷區域是否存在浮水印
-        使用相關性分析
+        使用與 JS 版本一致的亮度與 alpha 特徵分析
         """
-        region_array = np.array(region.convert('RGBA'), dtype=np.float32)
-        alpha_map = self._get_alpha_map(size)
-        
-        # 簡單的相關性檢測
-        # 檢查區域的透明度變化是否與預期的浮水印模式匹配
-        height, width = min(region_array.shape[0], alpha_map.shape[0]), min(region_array.shape[1], alpha_map.shape[1])
-        
-        correlation = 0
-        count = 0
-        
-        for y in range(height):
-            for x in range(width):
-                if alpha_map[y, x] > self.ALPHA_THRESHOLD:
-                    r, g, b = region_array[y, x, :3]
-                    # 檢查是否有類似浮水印的色彩偏移
-                    brightness = (r + g + b) / 3
-                    if 200 < brightness < 255:
-                        correlation += alpha_map[y, x]
-                    count += 1
-        
-        if count > 0:
-            avg_correlation = correlation / count
-            return avg_correlation > 0.01
-        
-        return False
+        x = position["x"]
+        y = position["y"]
+        width = position["width"]
+        height = position["height"]
+
+        image_array = np.array(image.convert("RGBA"), dtype=np.float32)
+
+        # 閾值設定（與 JS 版本一致）
+        HIGH_ALPHA_THRESHOLD = 0.15
+        LOW_ALPHA_THRESHOLD = 0.02
+        WHITE_PIXEL_THRESHOLD = 250
+        WHITE_RATIO_THRESHOLD = 0.98
+        WHITE_MEAN_THRESHOLD = 245
+        WHITE_STDDEV_THRESHOLD = 5
+
+        high_alpha_sum = 0
+        high_alpha_weighted_sum = 0
+        high_alpha_count = 0
+        low_alpha_brightness_sum = 0
+        low_alpha_count = 0
+        white_pixel_count = 0
+        brightness_values = []
+
+        for row in range(height):
+            for col in range(width):
+                alpha_idx_y = row
+                alpha_idx_x = col
+
+                # 確保不超出 alpha_map 範圍
+                if (
+                    alpha_idx_y >= alpha_map.shape[0]
+                    or alpha_idx_x >= alpha_map.shape[1]
+                ):
+                    continue
+
+                alpha = alpha_map[alpha_idx_y, alpha_idx_x]
+
+                img_y = y + row
+                img_x = x + col
+
+                # 確保不超出圖片範圍
+                if img_y >= image_array.shape[0] or img_x >= image_array.shape[1]:
+                    continue
+
+                r, g, b = image_array[img_y, img_x, :3]
+                brightness = (r + g + b) / 3
+                brightness_values.append(brightness)
+
+                # 白色像素計數
+                if (
+                    r >= WHITE_PIXEL_THRESHOLD
+                    and g >= WHITE_PIXEL_THRESHOLD
+                    and b >= WHITE_PIXEL_THRESHOLD
+                ):
+                    white_pixel_count += 1
+
+                # 高 alpha 區域統計
+                if alpha >= HIGH_ALPHA_THRESHOLD:
+                    high_alpha_sum += brightness
+                    high_alpha_weighted_sum += alpha
+                    high_alpha_count += 1
+                # 低 alpha 區域統計
+                elif alpha <= LOW_ALPHA_THRESHOLD:
+                    low_alpha_brightness_sum += brightness
+                    low_alpha_count += 1
+
+        total_pixels = width * height
+        if total_pixels == 0:
+            return False
+
+        white_ratio = white_pixel_count / total_pixels
+
+        # 計算亮度平均值和標準差
+        if brightness_values:
+            brightness_mean = np.mean(brightness_values)
+            brightness_stddev = np.std(brightness_values)
+        else:
+            return False
+
+        # 如果區域幾乎全白，則不是浮水印
+        if (
+            white_ratio >= WHITE_RATIO_THRESHOLD
+            and brightness_mean >= WHITE_MEAN_THRESHOLD
+            and brightness_stddev <= WHITE_STDDEV_THRESHOLD
+        ):
+            return False
+
+        # 需要同時有高 alpha 和低 alpha 區域
+        if high_alpha_count == 0 or low_alpha_count == 0:
+            return False
+
+        high_alpha_avg_brightness = high_alpha_sum / high_alpha_count
+        low_alpha_avg_brightness = low_alpha_brightness_sum / low_alpha_count
+        avg_alpha = high_alpha_weighted_sum / high_alpha_count
+
+        # 計算預期的亮度提升
+        expected_boost = avg_alpha * (255 - low_alpha_avg_brightness)
+        actual_boost = high_alpha_avg_brightness - low_alpha_avg_brightness
+
+        # 如果預期提升很小
+        if expected_boost < 5:
+            min_expected_brightness = (
+                avg_alpha * 255 + (1 - avg_alpha) * low_alpha_avg_brightness - 20
+            )
+            return high_alpha_avg_brightness >= min_expected_brightness
+
+        # 計算提升比率
+        boost_ratio = actual_boost / expected_boost
+        return 0.4 <= boost_ratio <= 1.5
     
     def _remove_watermark_from_region(self, image: Image.Image, 
                                        position: tuple) -> Image.Image:

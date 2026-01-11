@@ -31,6 +31,11 @@ if command -v python3 &>/dev/null; then
 	PYTHON_VERSION=$(python3 --version 2>&1)
 	echo -e "  ${GREEN}✓${NC} 找到 $PYTHON_VERSION"
 	echo -e "  ${GREEN}✓${NC} 路徑: $PYTHON_PATH"
+	
+	# 確認這個 Python 有安裝所需套件
+	if ! "$PYTHON_PATH" -c "import numpy, PIL" 2>/dev/null; then
+		echo -e "  ${YELLOW}!${NC} 此 Python 缺少必要套件，將在稍後安裝"
+	fi
 else
 	echo -e "  ${RED}✗${NC} 未找到 Python 3"
 	echo -e "  請先安裝 Python 3："
@@ -185,6 +190,9 @@ cat >"$WORKFLOW_PATH/Contents/document.wflow" <<WFLOW
 # 設定 PATH 以確保找得到 python3
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:\$PATH"
 
+# Python 路徑（安裝時自動偵測）
+PYTHON_PATH="${PYTHON_PATH}"
+
 # 腳本路徑
 SCRIPT_PATH="${SCRIPT_DIR}/remove_watermark.py"
 
@@ -194,7 +202,7 @@ FAIL=0
 
 # 處理每個輸入檔案
 for f in "\$@"; do
-    if /usr/bin/python3 "\$SCRIPT_PATH" "\$f" 2&gt;/dev/null; then
+    if "\$PYTHON_PATH" "\$SCRIPT_PATH" "\$f"; then
         ((SUCCESS++))
     else
         ((FAIL++))
