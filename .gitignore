@@ -34,6 +34,9 @@ ENV/
 *.swo
 *~
 
+# Project
+images/
+
 # macOS
 .DS_Store
 .AppleDouble

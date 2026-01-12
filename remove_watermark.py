@@ -468,8 +468,13 @@ class WatermarkRemover:
         Returns:
             輸出檔案路徑
         """
-        # 載入圖片
-        image = Image.open(image_path).convert('RGBA')
+        # 載入圖片並保留中繼資料
+        image = Image.open(image_path)
+        original_info = image.info.copy()
+        original_mode = image.mode
+
+        # 轉換為 RGBA 進行處理
+        image = image.convert("RGBA")
         
         # 偵測浮水印位置
         position = self._detect_watermark_position(image)
@@ -488,14 +493,50 @@ class WatermarkRemover:
             # 在原檔名加上 _no_watermark 後綴
             base, ext = os.path.splitext(image_path)
             output_path = f"{base}_no_watermark{ext}"
-        
-        # 儲存結果
-        if output_path.lower().endswith('.png'):
-            result.save(output_path, 'PNG')
-        elif output_path.lower().endswith(('.jpg', '.jpeg')):
-            result.convert('RGB').save(output_path, 'JPEG', quality=95)
+
+        # 準備儲存參數
+        save_args = {"optimize": True}
+
+        # 嘗試保留原有的 DPI 資訊（對 macOS 縮圖很重要）
+        if "dpi" in original_info:
+            save_args["dpi"] = original_info["dpi"]
         else:
-            result.save(output_path)
+            save_args["dpi"] = (72, 72)  # 預設 72 DPI
+
+        # 若為 PNG，可加入背景資訊避免某些檢視器顯示空白
+        if output_path.lower().endswith('.png'):
+            if original_mode == "RGB":
+                # 如果原本是 RGB，處理完後轉回去可以減少檔案大小並提高相容性
+                result.convert("RGB").save(output_path, "PNG", **save_args)
+            else:
+                result.save(output_path, "PNG", **save_args)
+        elif output_path.lower().endswith(('.jpg', '.jpeg')):
+            result.convert("RGB").save(output_path, "JPEG", quality=95, **save_args)
+        else:
+            result.save(output_path, **save_args)
+
+        # macOS 特有的後處理：使用 sips 刷新檔案結構（若在 macOS 上執行）
+        if sys.platform == "darwin":
+            try:
+                import subprocess
+
+                # 使用 sips 進行無損的屬性重新掃描，這通常能強制 Finder 生成縮圖
+                subprocess.run(
+                    [
+                        "sips",
+                        "-s",
+                        "format",
+                        "png" if output_path.endswith(".png") else "jpeg",
+                        output_path,
+                        "--out",
+                        output_path,
+                    ],
+                    capture_output=True,
+                )
+                # 清除可能干擾的隔離屬性
+                subprocess.run(["xattr", "-c", output_path], capture_output=True)
+            except Exception:
+                pass
         
         print(f"已儲存: {output_path}")
         return output_path
